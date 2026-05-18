@@ -5,7 +5,7 @@
  * Detects the current site, loads preferences, and manages lifecycle.
  */
 
-import type { SupportedSite, UserPreferences, RuleResult } from '../core/types';
+import type { SupportedSite, UserPreferences, RuleResult, Rule } from '../core/types';
 import { URL_PATTERNS, SITE_CONFIGS, DEFAULT_RULES } from '../core/constants';
 import { StorageService } from '../core/storage';
 import { RuleEngine } from '../core/rule-engine';
@@ -110,6 +110,7 @@ function detectSite(): SupportedSite | null {
  */
 function setupDynamicToggle(site: SupportedSite): void {
   let pipeline: ReturnType<typeof createPipeline> | null = null;
+  let bypassListenerAdded = false;
 
   StorageService.onPreferencesChanged((newPrefs: UserPreferences) => {
     const shouldBeActive = newPrefs.enabled && newPrefs.sites[site];
@@ -119,22 +120,25 @@ function setupDynamicToggle(site: SupportedSite): void {
       pipeline = createPipeline(site, newPrefs);
       pipeline.start();
 
-      // Set up bypass listener
-      document.addEventListener(BYPASS_EVENT, ((event: CustomEvent) => {
-        const { ruleId, element, duration } = event.detail as {
-          ruleId: string;
-          element: Element;
-          duration: number;
-        };
+      // Set up bypass listener only once
+      if (!bypassListenerAdded) {
+        bypassListenerAdded = true;
+        document.addEventListener(BYPASS_EVENT, ((event: CustomEvent) => {
+          const { ruleId, element, duration } = event.detail as {
+            ruleId: string;
+            element: Element;
+            duration: number;
+          };
 
-        StorageService.addBypass(ruleId, duration).catch((err) => {
-          logger.error('Failed to save bypass:', err);
-        });
+          StorageService.addBypass(ruleId, duration).catch((err) => {
+            logger.error('Failed to save bypass:', err);
+          });
 
-        if (pipeline) {
-          pipeline.revealElement(element, duration);
-        }
-      }) as EventListener);
+          if (pipeline) {
+            pipeline.revealElement(element, duration);
+          }
+        }) as EventListener);
+      }
     } else if (!shouldBeActive && pipeline && pipeline.isActive()) {
       logger.info('Disabling protection for:', site);
       pipeline.stop();
@@ -161,31 +165,44 @@ function createPipeline(site: SupportedSite, preferences: UserPreferences) {
     logger.group('Processing elements');
     logger.debug('Elements to process:', elements.length);
 
-    for (const element of elements) {
-      const results: RuleResult[] = ruleEngine.evaluateElement(element, site);
+    // Batch: read the full bypass list once per flush, then iterate synchronously
+    StorageService.getBypasses()
+      .then((bypasses) => {
+        const now = Date.now();
+        const bypassedRuleIds = new Set(
+          bypasses.filter((b) => b.expiresAt > now).map((b) => b.ruleId)
+        );
 
-      if (results.length > 0) {
-        // Apply the first matching rule action
-        const result = results[0];
+        for (const element of elements) {
+          const results: RuleResult[] = ruleEngine.evaluateElement(element, site);
 
-        // Check if the rule is currently bypassed
-        StorageService.isRuleBypassed(result.rule.id)
-          .then((bypassed) => {
-            if (!bypassed) {
+          if (results.length > 0) {
+            const result = results[0];
+
+            if (!bypassedRuleIds.has(result.rule.id)) {
               injector.applyAction(element, result.action, result.rule);
             } else {
               markProcessed(element);
             }
-          })
-          .catch((err) => {
-            logger.error('Error checking bypass state:', err);
-            // Apply action anyway on error
+          } else {
+            markProcessed(element);
+          }
+        }
+      })
+      .catch((err) => {
+        logger.error('Error fetching bypass states:', err);
+        // Apply actions anyway on error (fail-closed)
+        for (const element of elements) {
+          const results: RuleResult[] = ruleEngine.evaluateElement(element, site);
+
+          if (results.length > 0) {
+            const result = results[0];
             injector.applyAction(element, result.action, result.rule);
-          });
-      } else {
-        markProcessed(element);
-      }
-    }
+          } else {
+            markProcessed(element);
+          }
+        }
+      });
 
     logger.groupEnd();
   }

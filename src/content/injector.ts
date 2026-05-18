@@ -11,6 +11,7 @@ import { logger } from '../lib/logger';
 
 interface ActiveEffect {
   action: RuleAction;
+  rule: Rule;
   cleanup: () => void;
 }
 
@@ -34,7 +35,7 @@ export class Injector {
 
     switch (action) {
       case 'hide':
-        this.hideElement(element);
+        this.hideElement(element, rule);
         break;
       case 'blur':
         this.blurElement(element, rule.message || DEFAULT_MESSAGES.blur, rule);
@@ -47,7 +48,7 @@ export class Injector {
         );
         break;
       case 'redirect':
-        this.redirectPage(rule.urlPattern);
+        this.redirectPage(rule.redirectTarget || rule.urlPattern);
         break;
     }
   }
@@ -61,7 +62,7 @@ export class Injector {
       return;
     }
 
-    const { action, cleanup } = effect;
+    const { action, rule, cleanup } = effect;
     cleanup();
     this.activeEffects.delete(element);
 
@@ -73,12 +74,13 @@ export class Injector {
       clearTimeout(existingTimer);
     }
 
-    // Store action info to reapply later
+    // Store action and rule info to reapply later
     const storedAction = action;
+    const storedRule = rule;
     const timer = setTimeout(() => {
       this.revealTimers.delete(element);
       // Reapply the same visual effect (without bypass button since it was already used)
-      this.reapplyEffect(element, storedAction);
+      this.reapplyEffect(element, storedAction, storedRule);
     }, duration);
 
     this.revealTimers.set(element, timer);
@@ -119,7 +121,7 @@ export class Injector {
   /**
    * Hide an element by setting display to none.
    */
-  private hideElement(el: Element): void {
+  private hideElement(el: Element, rule: Rule): void {
     const htmlEl = el as HTMLElement;
     const originalDisplay = htmlEl.style.display;
 
@@ -128,6 +130,7 @@ export class Injector {
 
     this.activeEffects.set(el, {
       action: 'hide',
+      rule,
       cleanup: () => {
         htmlEl.style.display = originalDisplay;
         htmlEl.removeAttribute('data-focusos-action');
@@ -189,6 +192,7 @@ export class Injector {
 
     this.activeEffects.set(el, {
       action: 'blur',
+      rule,
       cleanup: () => {
         htmlEl.style.filter = originalFilter;
         htmlEl.style.pointerEvents = originalPointerEvents;
@@ -254,6 +258,7 @@ export class Injector {
 
     this.activeEffects.set(el, {
       action: 'overlay',
+      rule,
       cleanup: () => {
         htmlEl.style.position = originalPosition;
         htmlEl.removeAttribute('data-focusos-action');
@@ -265,9 +270,15 @@ export class Injector {
   }
 
   /**
-   * Redirect the page to a URL.
+   * Redirect the page to a URL. Validates that the URL does not contain glob characters.
    */
   private redirectPage(url: string): void {
+    // Reject URLs containing glob characters
+    if (/[*?{}]/.test(url)) {
+      logger.error('Invalid redirect target (contains glob characters):', url);
+      return;
+    }
+
     logger.info('Redirecting to:', url);
     window.location.href = url;
   }
@@ -275,32 +286,20 @@ export class Injector {
   /**
    * Reapply a visual effect after a temporary reveal expires.
    */
-  private reapplyEffect(element: Element, action: RuleAction): void {
+  private reapplyEffect(element: Element, action: RuleAction, rule: Rule): void {
     const htmlEl = element as HTMLElement;
+    // Mark the reapplied rule as non-bypassable since the bypass was already used
+    const reapplyRule: Rule = { ...rule, bypassable: false };
 
     switch (action) {
       case 'hide':
-        this.hideElement(element);
+        this.hideElement(element, reapplyRule);
         break;
       case 'blur':
-        this.blurElement(htmlEl, DEFAULT_MESSAGES.blur, {
-          id: '',
-          site: 'facebook',
-          urlPattern: '',
-          selectors: [],
-          action: 'blur',
-          bypassable: false,
-        });
+        this.blurElement(htmlEl, reapplyRule.message || DEFAULT_MESSAGES.blur, reapplyRule);
         break;
       case 'overlay':
-        this.overlayElement(htmlEl, DEFAULT_MESSAGES.overlay, {
-          id: '',
-          site: 'facebook',
-          urlPattern: '',
-          selectors: [],
-          action: 'overlay',
-          bypassable: false,
-        });
+        this.overlayElement(htmlEl, reapplyRule.message || DEFAULT_MESSAGES.overlay, reapplyRule);
         break;
       default:
         break;

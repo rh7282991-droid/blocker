@@ -18,6 +18,7 @@ export interface Rule {
   message?: string;
   bypassable?: boolean;
   bypassDuration?: number;
+  redirectTarget?: string;
 }
 
 // Extensible condition type for conditional rules (V2/V3)
