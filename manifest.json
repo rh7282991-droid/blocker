@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "FocusOS",
+  "version": "1.0.0",
+  "description": "AI-powered attention protection",
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://*.instagram.com/*",
+        "*://*.youtube.com/*"
+      ],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "FocusOS"
+  },
+  "options_page": "src/options/index.html",
+  "permissions": ["storage", "tabs", "activeTab"],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://*.instagram.com/*",
+    "*://*.youtube.com/*"
+  ],
+  "icons": {}
+}
