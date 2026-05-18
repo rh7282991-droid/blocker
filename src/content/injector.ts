@@ -48,7 +48,11 @@ export class Injector {
         );
         break;
       case 'redirect':
-        this.redirectPage(rule.redirectTarget || rule.urlPattern);
+        if (rule.redirectTarget) {
+          this.redirectPage(rule.redirectTarget);
+        } else {
+          logger.warn('Redirect rule missing redirectTarget, skipping:', rule.id);
+        }
         break;
     }
   }
@@ -109,7 +113,11 @@ export class Injector {
    */
   removeAllEffects(): void {
     for (const [element] of this.activeEffects) {
-      this.removeEffect(element);
+      try {
+        this.removeEffect(element);
+      } catch (err) {
+        logger.error('Cleanup failed for element:', err);
+      }
     }
     this.activeEffects.clear();
     for (const timer of this.revealTimers.values()) {

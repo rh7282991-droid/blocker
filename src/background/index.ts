@@ -40,9 +40,11 @@ async function updateBadge(tabId: number, url: string): Promise<void> {
 /**
  * Extension install/update handler.
  */
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   await StorageService.migrate();
-  await StorageService.setPreferences({ rules: DEFAULT_RULES });
+  if (details.reason === 'install') {
+    await StorageService.setPreferences({ rules: DEFAULT_RULES });
+  }
 
   // Create periodic alarm for bypass cleanup
   await chrome.alarms.create(CLEANUP_ALARM_NAME, { periodInMinutes: 5 });

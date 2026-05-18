@@ -32,6 +32,12 @@ function detectSite(): SupportedSite | null {
  * Main content script initialization as a self-executing async IIFE.
  */
 (async function main() {
+  // Guard against duplicate initialization on re-injection
+  if ((window as any).__focusos_initialized) {
+    return;
+  }
+  (window as any).__focusos_initialized = true;
+
   // 1. Detect current site
   const site = detectSite();
   if (!site) {
