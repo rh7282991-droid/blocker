@@ -23,7 +23,7 @@
     "default_title": "FocusOS"
   },
   "options_page": "src/options/index.html",
-  "permissions": ["storage", "tabs", "activeTab"],
+  "permissions": ["storage", "tabs", "activeTab", "alarms"],
   "host_permissions": [
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",
