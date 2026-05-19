@@ -1,4 +1,4 @@
-import type { UserPreferences, BypassState, StorageSchema } from './types';
+import type { UserPreferences, BypassState, StorageSchema, RedirectRule } from './types';
 import {
   DEFAULT_PREFERENCES,
   DEFAULT_BYPASS_DURATION,
@@ -23,6 +23,8 @@ function isChromeStorageAvailable(): boolean {
 export const StorageService = {
   /**
    * Get user preferences from storage, returning defaults if not set.
+   * Ensures backward compatibility by filling in newer fields (e.g. redirectRules)
+   * if they are missing from previously stored preferences.
    */
   async getPreferences(): Promise<UserPreferences> {
     if (!isChromeStorageAvailable()) {
@@ -36,7 +38,12 @@ export const StorageService = {
       return { ...DEFAULT_PREFERENCES };
     }
 
-    return stored;
+    // Backward compatibility: fill in fields added in later versions
+    return {
+      ...DEFAULT_PREFERENCES,
+      ...stored,
+      redirectRules: stored.redirectRules ?? [],
+    };
   },
 
   /**
@@ -128,6 +135,59 @@ export const StorageService = {
     const bypass = bypasses.find((b) => b.ruleId === ruleId);
 
     return bypass !== undefined && bypass.expiresAt > now;
+  },
+
+  /**
+   * Get all redirect rules from storage.
+   */
+  async getRedirectRules(): Promise<RedirectRule[]> {
+    const prefs = await this.getPreferences();
+    return prefs.redirectRules ?? [];
+  },
+
+  /**
+   * Add a new redirect rule. Generates a unique id and timestamp.
+   */
+  async addRedirectRule(
+    rule: Omit<RedirectRule, 'id' | 'createdAt'>
+  ): Promise<RedirectRule> {
+    const newRule: RedirectRule = {
+      ...rule,
+      id: `redirect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: Date.now(),
+    };
+    const current = await this.getRedirectRules();
+    await this.setPreferences({ redirectRules: [...current, newRule] });
+    return newRule;
+  },
+
+  /**
+   * Update an existing redirect rule by id.
+   */
+  async updateRedirectRule(rule: RedirectRule): Promise<void> {
+    const current = await this.getRedirectRules();
+    const updated = current.map((r) => (r.id === rule.id ? rule : r));
+    await this.setPreferences({ redirectRules: updated });
+  },
+
+  /**
+   * Delete a redirect rule by id.
+   */
+  async deleteRedirectRule(id: string): Promise<void> {
+    const current = await this.getRedirectRules();
+    const filtered = current.filter((r) => r.id !== id);
+    await this.setPreferences({ redirectRules: filtered });
+  },
+
+  /**
+   * Toggle the enabled state of a redirect rule.
+   */
+  async toggleRedirectRule(id: string): Promise<void> {
+    const current = await this.getRedirectRules();
+    const updated = current.map((r) =>
+      r.id === id ? { ...r, enabled: !r.enabled } : r
+    );
+    await this.setPreferences({ redirectRules: updated });
   },
 
   /**
