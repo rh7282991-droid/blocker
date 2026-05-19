@@ -28,11 +28,23 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Print environment info
+        run: |
+          echo "Node: $(node --version)"
+          echo "npm:  $(npm --version)"
+          echo "Working dir: $(pwd)"
+          echo "Files:"
+          ls -la
+          echo "package.json:"
+          cat package.json
+
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: |
+          set -e
+          npm install --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -100
 
       - name: Build extension
-        run: npm run build
+        run: npm run build 2>&1 | tail -200
 
       - name: Verify build output
         run: |
@@ -42,6 +54,8 @@ jobs:
           fi
           echo "Build artifacts:"
           ls -la dist/
+          echo "Manifest in dist:"
+          cat dist/manifest.json || echo "No manifest in dist!"
 
       - name: Create ZIP archive
         run: |
