@@ -14,6 +14,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Package
@@ -32,19 +35,13 @@ jobs:
         run: |
           echo "Node: $(node --version)"
           echo "npm:  $(npm --version)"
-          echo "Working dir: $(pwd)"
-          echo "Files:"
           ls -la
-          echo "package.json:"
-          cat package.json
 
       - name: Install dependencies
-        run: |
-          set -e
-          npm install --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -100
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Build extension
-        run: npm run build 2>&1 | tail -200
+        run: npm run build
 
       - name: Verify build output
         run: |
@@ -54,15 +51,14 @@ jobs:
           fi
           echo "Build artifacts:"
           ls -la dist/
-          echo "Manifest in dist:"
-          cat dist/manifest.json || echo "No manifest in dist!"
+          echo "Final manifest.json:"
+          cat dist/manifest.json
 
       - name: Create ZIP archive
         run: |
           cd dist
           zip -r ../focusos-extension.zip .
           cd ..
-          echo "ZIP created:"
           ls -lh focusos-extension.zip
 
       - name: Upload ZIP as artifact
@@ -72,7 +68,27 @@ jobs:
           path: focusos-extension.zip
           retention-days: 30
 
-      - name: Create GitHub Release (on tag)
+      - name: Create or update rolling Release (on branch push)
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-${{ github.ref_name }}
+          name: "FocusOS Latest Build (${{ github.ref_name }})"
+          body: |
+            Auto-built from branch `${{ github.ref_name }}` at commit ${{ github.sha }}.
+
+            **Install instructions:**
+            1. Download `focusos-extension.zip` below
+            2. Extract the ZIP
+            3. Open `chrome://extensions/`
+            4. Enable "Developer mode" (top-right)
+            5. Click "Load unpacked" and select the extracted folder
+          files: focusos-extension.zip
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create stable Release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
