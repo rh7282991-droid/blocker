@@ -85,6 +85,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   },
   rules: [],
   whitelist: [],
+  redirectRules: [],
 };
 
 /**

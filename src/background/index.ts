@@ -1,10 +1,12 @@
 import { StorageService } from '../core/storage';
 import { DEFAULT_RULES, URL_PATTERNS, SUPPORTED_SITES } from '../core/constants';
 import type { ExtensionMessage, SupportedSite } from '../core/types';
+import { checkAndRedirect, onTabRemoved } from './redirect';
 
 /**
  * FocusOS Background Service Worker
- * Handles extension lifecycle, tab monitoring, message routing, and bypass cleanup.
+ * Handles extension lifecycle, tab monitoring, message routing, redirect logic,
+ * and bypass cleanup.
  */
 
 const CLEANUP_ALARM_NAME = 'focusos-cleanup-bypasses';
@@ -51,12 +53,32 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 /**
- * Tab update handler - update badge when navigating.
+ * Tab update handler.
+ *
+ * On `loading` status: attempt a redirect as early as possible.
+ * Chrome fires onUpdated with status 'loading' when navigation starts —
+ * this lets us redirect BEFORE the page renders, avoiding the flash.
+ *
+ * On `complete` status: update badge based on the (possibly redirected) URL.
  */
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Earliest possible redirect: when URL changes (loading state).
+  if (changeInfo.url) {
+    checkAndRedirect(tabId, changeInfo.url).catch(() => {
+      // Errors are logged inside checkAndRedirect; swallow here.
+    });
+  }
+
   if (changeInfo.status === 'complete' && tab.url) {
     updateBadge(tabId, tab.url);
   }
+});
+
+/**
+ * Clean up redirect cache when a tab is closed.
+ */
+chrome.tabs.onRemoved.addListener((tabId) => {
+  onTabRemoved(tabId);
 });
 
 /**
@@ -102,6 +124,30 @@ async function handleMessage(
 
     case 'BYPASS_RULE': {
       await StorageService.addBypass(message.payload.ruleId, message.payload.duration);
+      sendResponse({ success: true });
+      break;
+    }
+
+    case 'ADD_REDIRECT_RULE': {
+      const rule = await StorageService.addRedirectRule(message.payload.rule);
+      sendResponse({ success: true, rule });
+      break;
+    }
+
+    case 'UPDATE_REDIRECT_RULE': {
+      await StorageService.updateRedirectRule(message.payload.rule);
+      sendResponse({ success: true });
+      break;
+    }
+
+    case 'DELETE_REDIRECT_RULE': {
+      await StorageService.deleteRedirectRule(message.payload.id);
+      sendResponse({ success: true });
+      break;
+    }
+
+    case 'TOGGLE_REDIRECT_RULE': {
+      await StorageService.toggleRedirectRule(message.payload.id);
       sendResponse({ success: true });
       break;
     }
